@@ -1,0 +1,14 @@
+{
+  "name": "install-vite-plugins",
+  "version": "1.0.0",
+  "description": "auto install vite-plugins",
+  "main": "index.ts",
+  "type": "module",
+  "scripts": {
+    "start": "node --import=tsx index.ts"
+  },
+  "devDependencies": {
+    "@types/node": "20.17.6",
+    "tsx": "4.19.2"
+  }
+}
