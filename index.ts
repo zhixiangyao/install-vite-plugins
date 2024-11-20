@@ -18,6 +18,50 @@ const ensureFileExists = (filePath: string, data = '') => {
   }
 }
 
+/** 转换成 unix 地址符号 */
+const transferUnixPathSymbol = (path: string) => path.replace(/\\/g, '/')
+
+type TGeneratorTsconfigFileParams = {
+  path: string
+  scoped: string
+}
+
+const generatorTsconfigFile = async (params: TGeneratorTsconfigFileParams) => {
+  const { path, scoped } = params
+  const tsconfigFilePath = path + '/tsconfig.json'
+
+  if (fs.existsSync(tsconfigFilePath)) {
+    console.log(`当前目录的 tsconfig.json 已存在!`)
+    return false
+  }
+
+  const length = tsconfigFilePath.split(scoped)[1].split('/').length - 1
+
+  const data = {
+    extends:
+      Array.from({ length })
+        .map(() => '..')
+        .join('/') + '/tsconfig.json',
+    compilerOptions: {
+      baseUrl: '.',
+      paths: {
+        [`$utils/*`]: [`./utils/*`],
+        '@/*': [
+          Array.from({ length: length - 1 })
+            .map(() => '..')
+            .join('/') + '/*',
+        ],
+      },
+    },
+  }
+
+  const jsonData = JSON.stringify(data, null, 2) // null 和 2 用于格式化输出
+
+  ensureFileExists(tsconfigFilePath, jsonData)
+  console.log('当前目录的 tsconfig.json 创建成功!')
+  return true
+}
+
 type TGeneratorFileParams = {
   pluginFilePath: string
   data: string
@@ -32,7 +76,7 @@ const generatorFile = async (params: TGeneratorFileParams) => {
   }
 
   ensureFileExists(pluginFilePath, data.trimStart())
-  console.log('创建成功!')
+  console.log('plugin 创建成功!')
   return true
 }
 
@@ -60,6 +104,12 @@ const injectPluginToViteConfig = (params: TInjectPluginToViteConfig) => {
   fs.writeFileSync(viteConfigFilePath, lines.join('\n'), 'utf8') // 创建文件
   console.log('注入插件成功!')
 }
+
+/** 生成 tsconfig.json 文件 */
+await generatorTsconfigFile({
+  path: transferUnixPathSymbol(path.resolve('../finance-admin/src/views/pay')),
+  scoped: '/src',
+})
 
 /** 生成 vite-plugin-path-alias 文件 */
 const res = await generatorFile({
