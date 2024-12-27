@@ -1,12 +1,14 @@
 export const code = `
 import { type Plugin } from 'vite'
 import * as path from 'path'
-import { existsSync, writeFileSync, statSync } from 'fs'
+import { existsSync, statSync, writeFileSync } from 'fs'
 
-const FILE_TYPE_LIST: \`.$\{string\}\`[] = ['.ts', '.d.ts', '.tsx', '.js', '.jsx', '.vue']
+const FILE_TYPE_LIST: \`.$\{string\}\`[] = [
+  '.ts', '.d.ts', '.tsx', '.js', '.jsx', '.vue',
+]
 
 /** 递归查找 [指定的文件夹 or 文件] */
-const findDirectory = (currentDir: string, alias: string) => {
+const findDirectory = (currentDir: string, alias: string): string | null => {
   const fullPath = path.join(currentDir, alias)
 
   // 如果是目录
@@ -28,11 +30,24 @@ const findDirectory = (currentDir: string, alias: string) => {
   return findDirectory(parentDir, alias)
 }
 
-type CreateTsConfigFileParams = { tsconfigPath: string; scoped: string; alias: string }
+interface CreateTsConfigFileParams {
+  tsconfigPath: string | undefined
+  scoped: string
+  alias: string
+}
 
 /** 创建 tsconfig 文件 */
 const createTsConfigFile = ({ tsconfigPath, scoped, alias }: CreateTsConfigFileParams) => {
-  const length = tsconfigPath.split(scoped)[1].split('/').length - 1
+  if (!tsconfigPath) return
+
+  const tsconfigFullPath = \`$\{tsconfigPath}/tsconfig.json\`
+
+  const isTsConfigExists = existsSync(tsconfigFullPath)
+
+  // 如果文件已经存在, 则跳过
+  if (isTsConfigExists) return
+
+  const length = tsconfigFullPath.split(scoped)[1].split('/').length - 1
 
   const data = {
     extends:
@@ -42,7 +57,7 @@ const createTsConfigFile = ({ tsconfigPath, scoped, alias }: CreateTsConfigFileP
     compilerOptions: {
       baseUrl: '.',
       paths: {
-        [\`$$\{alias\}/*\`]: [\`./$\{alias\}/*\`],
+        [\`$$\{alias}/*\`]: [\`./$\{alias}/*\`],
         '@/*': [
           Array.from({ length: length - 1 })
             .map(() => '..')
@@ -54,11 +69,11 @@ const createTsConfigFile = ({ tsconfigPath, scoped, alias }: CreateTsConfigFileP
 
   const jsonData = JSON.stringify(data, null, 2) // null 和 2 用于格式化输出
 
-  writeFileSync(path.resolve(tsconfigPath), jsonData)
+  writeFileSync(path.resolve(tsconfigFullPath), jsonData)
 }
 
 /** 在给定路径及其父目录中查找 [指定的文件夹 or 文件] */
-const findFolderUpwards = (startPath: string, alias: string): null | string => {
+const findFolderUpwards = (startPath: string, alias: string): string | null => {
   let currentPath = startPath
 
   // 统一使用 posix 路径，确保在 Windows 上也能使用正斜杠
@@ -98,39 +113,36 @@ export default function pathAliasPlugin({ scoped = '/src' } = {}): Plugin {
 
     /** 解析 $ 开头的路径, 并且自动创建 tsconfig.json */
     resolveId(source: string, importer) {
-      if (source.startsWith('$') && importer.includes(scoped)) {
+      if (source.startsWith('$') && importer?.includes(scoped)) {
         const [alias, ...reset] = source.replace('$', '').split('/')
         const importerDir = path.dirname(importer)
         const prefixPath = findDirectory(importerDir, alias)
 
-        if (prefixPath) {
-          const prefixPathUnix = transferUnixPathSymbol(prefixPath)
-          const fullPath = reset.length === 0 ? prefixPathUnix : \`$\{prefixPathUnix\}/$\{reset.join('/')\}\`
-          let completedPath: string | null = null
+        if (!prefixPath) return null
 
-          try {
-            for (const fileType of FILE_TYPE_LIST) {
-              if (existsSync(fullPath + fileType)) {
-                completedPath = fullPath + fileType
-                return completedPath
-              }
-            }
-          } finally {
-            if (!completedPath) return
+        const prefixPathUnix = transferUnixPathSymbol(prefixPath)
+        const fullPath = reset.length === 0 ? prefixPathUnix : \`$\{prefixPathUnix}/$\{reset.join('/')\}\`
+        let completedPath: string | null = null
 
-            const correctPathUnix = findFolderUpwards(importerDir, alias)?.replace(/\\\\/g, '/')
-            const tsconfigPath = \`$\{correctPathUnix\}/tsconfig.json\`
+        if (existsSync(fullPath)) {
+          completedPath = fullPath
 
-            if (existsSync(tsconfigPath) === false) {
-              createTsConfigFile({ tsconfigPath, scoped, alias })
-              console.log(tsconfigPath, \`创建成功\`)
-            } else {
-              console.log(tsconfigPath, \`已存在\`)
+          return completedPath
+        } else {
+          for (const fileType of FILE_TYPE_LIST) {
+            if (existsSync(fullPath + fileType)) {
+              completedPath = fullPath + fileType
+
+              return completedPath
             }
           }
         }
 
-        return null
+        if (!completedPath) return null
+
+        const tsconfigPath = findFolderUpwards(importerDir, alias)?.replace(/\\\\/g, '/')
+
+        createTsConfigFile({ tsconfigPath, scoped, alias })
       }
 
       return null
